@@ -7,39 +7,17 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
-import android.graphics.Color;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.text.DecimalFormat;
-import java.util.Collections;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.ArrayList;
 
 public class MainActivity extends Activity implements ServiceConnection {
 
-    public static final String CURRENT_VALUE = "Current Value";
-    public static final String AVERAGE_5 = "Average(5)";
-    public static final String AVERAGE_10 = "Average(10)";
-    public static final String AVERAGE_15 = "Average(15)";
-
     private BitTrackerService bt;
-    private boolean mIsBound;
-    private BroadcastReceiver updateUIReceiver;
-
-    private String previousUpdate = "";
-    private ValueArray values;
-    private MyListAdapter adapter;
-    private TextView textView;
-    private ListView listView;
-    private TextView notiView;
-    private Map<String, Integer> oldOrder;
-    private double boughtPrice;
-    private double profit;
-    private int txns=0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,86 +26,45 @@ public class MainActivity extends Activity implements ServiceConnection {
         setContentView(R.layout.activity_main);
 
         bt = new BitTrackerService();
-        oldOrder = new TreeMap<>();
-        values = new ValueArray();
-        values.add(new ValueEntry(CURRENT_VALUE, 0.00));
-        values.add(new ValueEntry(AVERAGE_5, 0.00));
-        values.add(new ValueEntry(AVERAGE_10, 0.00));
-        values.add(new ValueEntry(AVERAGE_15, 0.00));
-        adapter = new MyListAdapter(values);
-        textView = (TextView) findViewById(R.id.txtLastUpdate);
-        notiView = (TextView) findViewById(R.id.notifications);
-
-        listView = (ListView) findViewById(R.id.list);
-        listView.setAdapter(adapter);
+        updateScreen();
 
         IntentFilter filter = new IntentFilter();
-
         filter.addAction("com.beldin0.BitTracker.action");
-
-        updateUIReceiver = new BroadcastReceiver() {
+        registerReceiver(new BroadcastReceiver() {
 
             @Override
             public void onReceive(Context context, Intent intent) {
                 update(intent);
             }
-        };
-        registerReceiver(updateUIReceiver,filter);
+
+        },filter);
     }
 
     private void update(Intent local) {
+        ArrayList<ValueEntry> tempValues = local.getParcelableArrayListExtra("values");
         Bundle b = local.getExtras();
-        previousUpdate = b.getString("latest");
-        textView.setText("Last Update: " + previousUpdate);
-        fixOldOrder();
-        values.clear();
-        values.add(new ValueEntry(CURRENT_VALUE, b.getDouble("value")));
-        values.add(new ValueEntry(AVERAGE_5, b.getDouble("av5"), Color.GREEN));
-        values.add(new ValueEntry(AVERAGE_10, b.getDouble("av10"), Color.MAGENTA));
-        values.add(new ValueEntry(AVERAGE_15, b.getDouble("av15"), Color.RED));
-        Collections.sort(values);
-        adapter.notifyDataSetChanged();
-        compareOrders();
+        String previousUpdate = b.getString("latest");
+        ArrayList<String> tempNoti = b.getStringArrayList("notifications");
+        updateScreen(previousUpdate, tempNoti, tempValues);
     }
 
-    private void fixOldOrder() {
-        for (int i=0; i<values.size(); i++) {
-            oldOrder.put(values.get(i).getName(), i);
-        }
+    private void updateScreen() {
+        updateScreen(bt.getLastUpdate(), bt.getNotifications(), bt.getValues());
     }
 
-    private void compareOrders() {
-        boolean shouldBuy = false;
-        boolean shouldSell = false;
+    private void updateScreen(String previousUpdate, ArrayList<String> tempNoti, ArrayList<ValueEntry> values) {
+        updateNotifications(tempNoti);
+        ((TextView) findViewById(R.id.txtLastUpdate)).setText(String.format("Last Update: %s", previousUpdate));
+        ((ListView) findViewById(R.id.list)).setAdapter(new MyListAdapter(values));
+    }
 
-        if (oldOrder.get(AVERAGE_5) > oldOrder.get(AVERAGE_15)
-                && values.getIndex(AVERAGE_5) < values.getIndex(AVERAGE_15)) {
-            shouldBuy = true;
-        };
-
-        if (oldOrder.get(AVERAGE_5) < oldOrder.get(AVERAGE_10)
-                && values.getIndex(AVERAGE_5) > values.getIndex(AVERAGE_10)) {
-            shouldSell = true;
-        };
-
-        String noti = "";
-
-        if (shouldBuy && boughtPrice == 0) {
-            boughtPrice = values.getValue(CURRENT_VALUE);
-            noti = "BUY: " + setDecimals(boughtPrice,2);
+    private void updateNotifications(ArrayList<String> notifications) {
+        if (notifications == null || notifications.size()==0) return;
+        TextView notiView = (TextView) findViewById(R.id.notifications);
+        notiView.setText("");
+        for (int i=0; i<notifications.size(); i++) {
+            notiView.append(String.format("%s\n", notifications.get(i)));
         }
-
-        if (shouldSell && boughtPrice > 0) {
-            double soldPrice = values.getValue(CURRENT_VALUE);
-            double thisProfit = soldPrice - boughtPrice;
-            profit += thisProfit;
-            txns++;
-            noti = "SELL: " + setDecimals(soldPrice,2) + " (make " + setDecimals(thisProfit,2) + ", total profit " + setDecimals(profit,2) + ")(" + txns + ")";
-            boughtPrice = 0;
-        }
-
-        if (!"".equals(noti)) notiView.append("\n" + noti);
-
     }
 
     @Override
@@ -135,6 +72,7 @@ public class MainActivity extends Activity implements ServiceConnection {
         super.onResume();
         Intent intent= new Intent(this, BitTrackerService.class);
         bindService(intent, this, Context.BIND_AUTO_CREATE);
+        updateScreen();
     }
 
     @Override
@@ -147,20 +85,16 @@ public class MainActivity extends Activity implements ServiceConnection {
     public void onServiceConnected(ComponentName name, IBinder binder) {
         BitTrackerService.MyBinder b = (BitTrackerService.MyBinder) binder;
         bt = b.getService();
-        Toast.makeText(MainActivity.this, "Connected", Toast.LENGTH_SHORT).show();
+        bt.setUIConnected(true);
+        String first = bt.getFirstUpdate();
+        Toast.makeText(MainActivity.this, String.format("Connected: %s", first), Toast.LENGTH_SHORT).show();
     }
 
     @Override
     public void onServiceDisconnected(ComponentName name) {
+        bt.setUIConnected(false);
+        Toast.makeText(MainActivity.this, "Disconnected", Toast.LENGTH_SHORT).show();
         bt = null;
     }
 
-    public String setDecimals (double value, int decimals) {
-        return new DecimalFormat("#,###" + ((decimals>0)? ("." + new String(new char[decimals]).replace("\0","0")): "")).format(value);
-    }
-
-    public String setDecimals(double value)
-    {
-        return setDecimals(value, 4);
-    }
 }

@@ -1,29 +1,25 @@
 package com.beldin0.android.bittracker;
 
 
-import android.util.Pair;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.TextView;
 
-import java.util.List;
-
-/**
- * Created by beldi on 03/11/2017.
- */
+import java.util.ArrayList;
 
 public class MyListAdapter extends BaseAdapter {
 
-    private List<List<Pair<String, Double>>> source;
+    private ArrayList<ValueEntry> source;
 
-    public MyListAdapter(List list) {
+    public MyListAdapter(ArrayList<ValueEntry> list) {
         this.source = list;
     }
 
     @Override
     public int getCount() {
+        if (source == null) return 0;
         return source.size();
     }
 
@@ -59,7 +55,7 @@ public class MyListAdapter extends BaseAdapter {
             textView.setBackgroundColor(currentItem.getColour());
 
             TextView textView2 = (TextView) listItemView.findViewById(R.id.value);
-            textView2.setText("" + currentItem.getValueAsString());
+            textView2.setText(String.format("%s", currentItem.getValueAsString()));
             textView2.setBackgroundColor(currentItem.getColour());
         }
         return listItemView;

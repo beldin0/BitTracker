@@ -1,10 +1,12 @@
 package com.beldin0.android.bittracker;
 
 import android.graphics.Color;
+import android.os.Parcel;
+import android.os.Parcelable;
 
 import java.text.DecimalFormat;
 
-public class ValueEntry implements Comparable {
+public class ValueEntry implements Comparable, Parcelable {
 
     private String pName;
     private double pValue;
@@ -53,4 +55,33 @@ public class ValueEntry implements Comparable {
         ValueEntry ve = (ValueEntry)o;
         return ve.getName().equals(this.getName());
     }
+
+    @Override
+    public int describeContents() {
+        return hashCode();
+    }
+
+    @Override
+    public void writeToParcel(Parcel dest, int flags) {
+        dest.writeString(pName);
+        dest.writeDouble(pValue);
+        dest.writeInt(colour);
+    }
+
+    public ValueEntry(Parcel parcel) {
+        pName = parcel.readString();
+        pValue = parcel.readDouble();
+        this.colour = parcel.readInt();
+    }
+
+    public static final Parcelable.Creator<ValueEntry> CREATOR
+            = new Parcelable.Creator<ValueEntry>() {
+        public ValueEntry createFromParcel(Parcel in) {
+            return new ValueEntry(in);
+        }
+
+        public ValueEntry[] newArray(int size) {
+            return new ValueEntry[size];
+        }
+    };
 }

@@ -3,6 +3,7 @@ package com.beldin0.android.bittracker;
 
 import android.app.Service;
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -18,8 +19,18 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Map;
+import java.util.TreeMap;
 
 public class BitTrackerService extends Service {
+
+    public static final String CURRENT_VALUE = "Current Value";
+    public static final String AVERAGE_5 = "5-Point Average";
+    public static final String AVERAGE_10 = "10-Point Average";
+    public static final String AVERAGE_15 = "15-Point Average";
 
     private final IBinder mBinder = new MyBinder();
     public static Runnable runnable = null;
@@ -32,8 +43,20 @@ public class BitTrackerService extends Service {
     private URL apiURL;
     private double[] price;
     private boolean end;
+    private String firstUpdate = "";
     private String lastUpdate;
     private int count;
+    private ArrayList<ValueEntry> values;
+    private Map<String, Integer> oldOrder = new TreeMap<>();
+    private double boughtPrice;
+    private double profit;
+    private int txns = 0;
+    private ArrayList<String> notifications = new ArrayList<>();
+    private boolean UIConnected;
+
+    public void setUIConnected(boolean UIConnected) {
+        this.UIConnected = UIConnected;
+    }
 
     public BitTrackerService() {
         this(DEFAULT_URL);
@@ -76,18 +99,35 @@ public class BitTrackerService extends Service {
 
     public void go() {
         getNewPrice();
-        Intent local = new Intent();
-        local.setAction("com.beldin0.BitTracker.action");
-        local.putExtra("latest", lastUpdate);
-        local.putExtra("value", latest());
-        local.putExtra("av5", average(5));
-        local.putExtra("av10", average(10));
-        local.putExtra("av15", average(15));
-        this.sendBroadcast(local);
+        if (values!= null) fixOldOrder();
+        values = new ArrayList<>();
+        values.add(new ValueEntry(CURRENT_VALUE, latest()));
+        if (!(average(5)==0)) values.add(new ValueEntry(AVERAGE_5, average(5), Color.GREEN));
+        if (!(average(10)==0)) values.add(new ValueEntry(AVERAGE_10, average(10), Color.MAGENTA));
+        if (!(average(15)==0)) values.add(new ValueEntry(AVERAGE_15, average(15), Color.RED));
+        Collections.sort(values);
+        String tmpNoti = compareOrders();
+        if (!("".equals(tmpNoti))) {
+            notifications.add(tmpNoti);
+            if (notifications.size() > 10) {
+                notifications.remove(0);
+            }
+        }
+
+        if (UIConnected) {
+            Intent local = new Intent();
+            local.putExtra("latest", lastUpdate);
+            local.putExtra("notifications", notifications);
+            local.putParcelableArrayListExtra("values", values);
+            local.setAction("com.beldin0.BitTracker.action");
+            this.sendBroadcast(local);
+        } else {
+            // TODO raise a notification with the text from tmpNoti
+        }
     }
 
     private void getNewPrice() {
-        String jsonString="";
+        String jsonString;
         try {
             jsonString = getJSON();
         } catch (Exception e) {
@@ -101,19 +141,21 @@ public class BitTrackerService extends Service {
         JsonObject time = (JsonObject) obj.get("time");
         add(usd.get("rate_float").getAsDouble());
         lastUpdate = (time.get("updateduk").getAsString());
+        if ("".equals(firstUpdate)) firstUpdate = (time.get("updateduk").getAsString());
     }
 
     public boolean isFull() {
-        return (count==15);
+        return (count>=15);
     }
 
     public void add(double d) {
-        if (count>=15) count = 14;
+        if (isFull()) count = 14;
         for (int i=count; i>0; i--) {
             price [i] = price[i-1];
         }
         price[0] = d;
-        if(++count==15 && UPDATE_DELAY < 1000 * 60) UPDATE_DELAY = 1000 * 60;
+        count++;
+        if(isFull() && UPDATE_DELAY < 1000 * 60) UPDATE_DELAY = 1000 * 60;
     }
 
     public String getLastUpdate() {
@@ -143,7 +185,6 @@ public class BitTrackerService extends Service {
     }
 
     private double sum(int number, int startAt) {
-        // Log.d("sum", number + " " + startAt + " " + count);
         if (number<1 || startAt < 0 || startAt > count || number > count) return 0;
         if (number + startAt > count) startAt = count - number;
         if (number > count) number = count;
@@ -162,11 +203,8 @@ public class BitTrackerService extends Service {
         try {
             jObj = new JsonParser().parse(json).getAsJsonObject();
         } catch (JsonParseException e) {
-            // Log.e("JSON Parser", "Error parsing data " + e.toString());
             System.out.println("error on parse data in jsonparser.java");
         }
-
-        // return JSON String
         return jObj;
 
     }
@@ -181,24 +219,87 @@ public class BitTrackerService extends Service {
             e.printStackTrace();
         }
 
-        String inputLine = "";
         try {
             json = in.readLine();
-            // Log.d("getJSON", json);
         } catch (IOException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
         } finally {
             in.close();
         }
-        // Log.d("json",json);
         return json;
     }
+
+    private String compareOrders() {
+        if(oldOrder==null || oldOrder.size()<15 || values==null) return "";
+
+        boolean shouldBuy = false;
+        boolean shouldSell = false;
+        String noti = "";
+
+        if (oldOrder.get(AVERAGE_5) > oldOrder.get(AVERAGE_15)
+                && getIndex(AVERAGE_5) < getIndex(AVERAGE_15)) {
+            shouldBuy = true;
+        } else if (oldOrder.get(AVERAGE_5) < oldOrder.get(AVERAGE_10)
+                && getIndex(AVERAGE_5) > getIndex(AVERAGE_10)) {
+            shouldSell = true;
+        }
+
+        if (shouldBuy && boughtPrice == 0) {
+            boughtPrice = getValue(CURRENT_VALUE);
+            noti = lastUpdate + "\n" + "BUY: " + setDecimals(boughtPrice,2);
+        }else if (shouldSell && boughtPrice > 0) {
+            double soldPrice = getValue(CURRENT_VALUE);
+            double thisProfit = soldPrice - boughtPrice;
+            profit += thisProfit;
+            txns++;
+            noti = lastUpdate + "\n" + "SELL: " + setDecimals(soldPrice,2) + " (make " + setDecimals(thisProfit,2) + ", total profit " + setDecimals(profit,2) + ")(" + txns + ")";
+            boughtPrice = 0;
+        }
+
+        return noti;
+    }
+
+    public int getIndex (String name) {
+        return values.indexOf(new ValueEntry(name));
+    }
+
+    public double getValue (String name) {
+        return values.get(getIndex(name)).getValue();
+    }
+
+    private void fixOldOrder() {
+        for (int i=0; i<values.size(); i++) {
+            oldOrder.put(values.get(i).getName(), i);
+        }
+    }
+
+    public ArrayList<ValueEntry> getValues() {
+        return values;
+    }
+
+    public ArrayList<String> getNotifications() {
+        return notifications;
+    }
+
+    public String getFirstUpdate() {
+        return firstUpdate;
+    }
+
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         go();
         return Service.START_STICKY;
+    }
+
+    public String setDecimals (double value, int decimals) {
+        return new DecimalFormat("#,###" + ((decimals>0)? ("." + new String(new char[decimals]).replace("\0","0")): "")).format(value);
+    }
+
+    public String setDecimals(double value)
+    {
+        return setDecimals(value, 4);
     }
 
     @Override
