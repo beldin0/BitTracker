@@ -22,6 +22,9 @@ public class MainActivity extends Activity implements ServiceConnection {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
 
+        Intent intent = new Intent(this, BitTrackerService.class);
+        startService(intent);
+
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
@@ -70,14 +73,15 @@ public class MainActivity extends Activity implements ServiceConnection {
     @Override
     protected void onResume() {
         super.onResume();
-        Intent intent= new Intent(this, BitTrackerService.class);
+        Intent intent = new Intent(this, BitTrackerService.class);
         bindService(intent, this, Context.BIND_AUTO_CREATE);
-        updateScreen();
+        bt.setUIConnected(true);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        bt.setUIConnected(false);
         unbindService(this);
     }
 
@@ -88,13 +92,14 @@ public class MainActivity extends Activity implements ServiceConnection {
         bt.setUIConnected(true);
         String first = bt.getFirstUpdate();
         Toast.makeText(MainActivity.this, String.format("Connected: %s", first), Toast.LENGTH_SHORT).show();
+        updateScreen();
     }
 
     @Override
     public void onServiceDisconnected(ComponentName name) {
         bt.setUIConnected(false);
         Toast.makeText(MainActivity.this, "Disconnected", Toast.LENGTH_SHORT).show();
-        bt = null;
+        //bt = null;
     }
 
 }

@@ -1,6 +1,8 @@
 package com.beldin0.android.bittracker;
 
-
+import android.app.Notification;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.graphics.Color;
@@ -9,12 +11,14 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
+import android.util.Log;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.MalformedURLException;
@@ -32,10 +36,12 @@ public class BitTrackerService extends Service {
     public static final String AVERAGE_10 = "10-Point Average";
     public static final String AVERAGE_15 = "15-Point Average";
 
+    public static final int RUNNING_NOTIFICATION = 1;
+    public static final int ALERT_NOTIFICATION = 2;
+
     private final IBinder mBinder = new MyBinder();
     public static Runnable runnable = null;
     private Handler handler = null;
-    private HandlerThread handlerThread = null;
 
     private static final String DEFAULT_URL = "https://api.coindesk.com/v1/bpi/currentprice.json";
     private static int UPDATE_DELAY = 1000 * 3; // 3 seconds delay
@@ -56,6 +62,16 @@ public class BitTrackerService extends Service {
 
     public void setUIConnected(boolean UIConnected) {
         this.UIConnected = UIConnected;
+        if (UIConnected) {
+            try {
+                NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                notificationManager.cancel(RUNNING_NOTIFICATION);
+            } catch (NullPointerException e) {
+                Log.d("Close notification","Failed to find NOTIFICATION_SERVICE");
+            }
+        } else {
+            startForeground(RUNNING_NOTIFICATION, buildNotification("Running..."));
+        }
     }
 
     public BitTrackerService() {
@@ -77,7 +93,7 @@ public class BitTrackerService extends Service {
 
     @Override
     public void onCreate() {
-        handlerThread = new HandlerThread("MyHandlerThread");
+        HandlerThread handlerThread = new HandlerThread("MyHandlerThread");
         handlerThread.start();
         Looper looper = handlerThread.getLooper();
         handler = new Handler(looper);
@@ -92,7 +108,6 @@ public class BitTrackerService extends Service {
         handler.postDelayed(runnable, UPDATE_DELAY);
     }
 
-
     public void stop () {
         end = true;
     }
@@ -103,11 +118,13 @@ public class BitTrackerService extends Service {
         values = new ArrayList<>();
         values.add(new ValueEntry(CURRENT_VALUE, latest()));
         if (!(average(5)==0)) values.add(new ValueEntry(AVERAGE_5, average(5), Color.GREEN));
-        if (!(average(10)==0)) values.add(new ValueEntry(AVERAGE_10, average(10), Color.MAGENTA));
+        if (!(average(10)==0)) values.add(new ValueEntry(AVERAGE_10, average(10), Color.YELLOW));
         if (!(average(15)==0)) values.add(new ValueEntry(AVERAGE_15, average(15), Color.RED));
         Collections.sort(values);
         String tmpNoti = compareOrders();
         if (!("".equals(tmpNoti))) {
+            NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            notificationManager.notify(ALERT_NOTIFICATION, buildNotification(tmpNoti));
             notifications.add(tmpNoti);
             if (notifications.size() > 10) {
                 notifications.remove(0);
@@ -122,8 +139,20 @@ public class BitTrackerService extends Service {
             local.setAction("com.beldin0.BitTracker.action");
             this.sendBroadcast(local);
         } else {
-            // TODO raise a notification with the text from tmpNoti
+            NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            notificationManager.cancel(RUNNING_NOTIFICATION);
+            notificationManager.notify(RUNNING_NOTIFICATION, buildNotification(String.format("Running... Last value: %s",setDecimals(latest(),2))));
         }
+    }
+
+    private Notification buildNotification(String notificationText) {
+        Notification.Builder mBuilder =
+                new Notification.Builder(this)
+                        .setSmallIcon(R.drawable.ic_stat_name)
+                        .setContentTitle("BitTracker")
+                        .setContentText(notificationText)
+                        .setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_UPDATE_CURRENT));
+        return mBuilder.build();
     }
 
     private void getNewPrice() {
@@ -211,19 +240,19 @@ public class BitTrackerService extends Service {
 
     private String getJSON() throws Exception {
         String json = "";
-        BufferedReader in = null;
+        BufferedReader in;
         try {
             in = new BufferedReader(new InputStreamReader(apiURL.openStream()));
         } catch (IOException e) {
-            // TODO Auto-generated catch block
             e.printStackTrace();
+            in = new BufferedReader(new InputStreamReader(new ByteArrayInputStream("".getBytes())));
         }
 
         try {
             json = in.readLine();
         } catch (IOException e) {
-            // TODO Auto-generated catch block
             e.printStackTrace();
+            json = "";
         } finally {
             in.close();
         }
@@ -231,7 +260,7 @@ public class BitTrackerService extends Service {
     }
 
     private String compareOrders() {
-        if(oldOrder==null || oldOrder.size()<15 || values==null) return "";
+        if(oldOrder==null || oldOrder.size()<4 || values==null) return "";
 
         boolean shouldBuy = false;
         boolean shouldSell = false;
@@ -247,13 +276,13 @@ public class BitTrackerService extends Service {
 
         if (shouldBuy && boughtPrice == 0) {
             boughtPrice = getValue(CURRENT_VALUE);
-            noti = lastUpdate + "\n" + "BUY: " + setDecimals(boughtPrice,2);
+            noti = "BUY: " + setDecimals(boughtPrice,2)+ "\n" + lastUpdate;
         }else if (shouldSell && boughtPrice > 0) {
             double soldPrice = getValue(CURRENT_VALUE);
             double thisProfit = soldPrice - boughtPrice;
             profit += thisProfit;
             txns++;
-            noti = lastUpdate + "\n" + "SELL: " + setDecimals(soldPrice,2) + " (make " + setDecimals(thisProfit,2) + ", total profit " + setDecimals(profit,2) + ")(" + txns + ")";
+            noti = "SELL: " + setDecimals(soldPrice,2) + " (make " + setDecimals(thisProfit,2) + ", total profit " + setDecimals(profit,2) + ")(" + txns + ")" + "\n" + lastUpdate;
             boughtPrice = 0;
         }
 
@@ -286,13 +315,6 @@ public class BitTrackerService extends Service {
         return firstUpdate;
     }
 
-
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        go();
-        return Service.START_STICKY;
-    }
-
     public String setDecimals (double value, int decimals) {
         return new DecimalFormat("#,###" + ((decimals>0)? ("." + new String(new char[decimals]).replace("\0","0")): "")).format(value);
     }
@@ -300,6 +322,12 @@ public class BitTrackerService extends Service {
     public String setDecimals(double value)
     {
         return setDecimals(value, 4);
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        go();
+        return Service.START_REDELIVER_INTENT;
     }
 
     @Override
