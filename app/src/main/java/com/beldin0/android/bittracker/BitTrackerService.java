@@ -70,7 +70,7 @@ public class BitTrackerService extends Service {
                 Log.d("Close notification","Failed to find NOTIFICATION_SERVICE");
             }
         } else {
-            startForeground(RUNNING_NOTIFICATION, buildNotification("Running..."));
+            startForeground(RUNNING_NOTIFICATION, buildNotification(String.format("Running... Last value: %s",setDecimals(latest(),2))));
         }
     }
 
@@ -151,6 +151,7 @@ public class BitTrackerService extends Service {
                         .setSmallIcon(R.drawable.ic_stat_name)
                         .setContentTitle("BitTracker")
                         .setContentText(notificationText)
+                        .setAutoCancel(true)
                         .setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_UPDATE_CURRENT));
         return mBuilder.build();
     }
