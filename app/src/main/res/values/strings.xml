@@ -1,8 +1,4 @@
 <resources>
     <string name="app_name">Bit Tracker</string>
-    <string name="local_service_stopped">Bit Tracker Service Started</string>
-    <string name="local_service_started">Bit Tracker Service Started</string>
-    <string name="local_service_label">Bit Tracker Service is running</string>
-    <string name="local_service_connected">Updating...</string>
-    <string name="local_service_disconnected">huh?</string>
+    <string name="last_update">Last Update:</string>
 </resources>

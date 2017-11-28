@@ -1,4 +1,4 @@
-package com.beldin0.android.bittracker;
+package com.beldin0.android.bittracker2;
 
 import android.graphics.Color;
 import android.os.Parcel;
@@ -6,17 +6,13 @@ import android.os.Parcelable;
 
 import java.text.DecimalFormat;
 
-public class ValueEntry implements Comparable, Parcelable {
+public class ValueEntry implements Comparable<ValueEntry>, Parcelable {
 
-    private String pName;
-    private double pValue;
-    private int colour;
+    private final String pName;
+    private final double pValue;
+    private final int colour;
 
-    public double getValue() {
-        return pValue;
-    }
-
-    public int getColour() {
+    int getColour() {
         return colour;
     }
 
@@ -24,27 +20,22 @@ public class ValueEntry implements Comparable, Parcelable {
         return pName;
     }
 
-    public ValueEntry(String name) {
-        this(name, 0.00, Color.WHITE);
-    }
-
-    public ValueEntry(String name, double value) {
+    ValueEntry(String name, double value) {
         this(name, value, Color.WHITE);
     }
 
-    public ValueEntry(String name, double value, int colour) {
+    ValueEntry(String name, double value, int colour) {
         pName = name;
         pValue = value;
         this.colour = colour;
     }
 
-    public String getValueAsString() {
+    String getValueAsString() {
         return new DecimalFormat("#,###.0000").format(pValue);
     }
 
     @Override
-    public int compareTo(Object o) {
-        ValueEntry v = (ValueEntry) o;
+    public int compareTo(ValueEntry v) {
         if (v.pValue == pValue) return 0;
         return (v.pValue > pValue)? 1 : -1;
     }
@@ -53,7 +44,7 @@ public class ValueEntry implements Comparable, Parcelable {
     public boolean equals (Object o) {
         if (!(o instanceof ValueEntry)) return false;
         ValueEntry ve = (ValueEntry)o;
-        return ve.getName().equals(this.getName());
+        return (ve.getName().equals(this.getName()) && ve.getValueAsString().equals(this.getValueAsString()));
     }
 
     @Override
@@ -68,7 +59,7 @@ public class ValueEntry implements Comparable, Parcelable {
         dest.writeInt(colour);
     }
 
-    public ValueEntry(Parcel parcel) {
+    private ValueEntry(Parcel parcel) {
         pName = parcel.readString();
         pValue = parcel.readDouble();
         this.colour = parcel.readInt();

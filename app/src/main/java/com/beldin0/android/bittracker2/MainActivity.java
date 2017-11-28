@@ -1,4 +1,4 @@
-package com.beldin0.android.bittracker;
+package com.beldin0.android.bittracker2;
 
 import android.app.Activity;
 import android.content.BroadcastReceiver;
@@ -47,26 +47,26 @@ public class MainActivity extends Activity implements ServiceConnection {
         ArrayList<ValueEntry> tempValues = local.getParcelableArrayListExtra("values");
         Bundle b = local.getExtras();
         String previousUpdate = b.getString("latest");
-        ArrayList<String> tempNoti = b.getStringArrayList("notifications");
-        updateScreen(previousUpdate, tempNoti, tempValues);
+        ArrayList<String> tmpNotification = b.getStringArrayList("notifications");
+        updateScreen(previousUpdate, tmpNotification, tempValues);
     }
 
     private void updateScreen() {
-        updateScreen(bt.getLastUpdate(), bt.getNotifications(), bt.getValues());
+        updateScreen(bt.getDateAndTimeOfMostRecentPricePoint(), bt.getNotifications(), bt.getValuesToBeShownInUI());
     }
 
-    private void updateScreen(String previousUpdate, ArrayList<String> tempNoti, ArrayList<ValueEntry> values) {
-        updateNotifications(tempNoti);
+    private void updateScreen(String previousUpdate, ArrayList<String> tmpNotifications, ArrayList<ValueEntry> values) {
+        updateNotifications(tmpNotifications);
         ((TextView) findViewById(R.id.txtLastUpdate)).setText(String.format("Last Update: %s", previousUpdate));
         ((ListView) findViewById(R.id.list)).setAdapter(new MyListAdapter(values));
     }
 
     private void updateNotifications(ArrayList<String> notifications) {
         if (notifications == null || notifications.size()==0) return;
-        TextView notiView = (TextView) findViewById(R.id.notifications);
-        notiView.setText("");
+        TextView notificationView = (TextView) findViewById(R.id.notifications);
+        notificationView.setText("");
         for (int i=0; i<notifications.size(); i++) {
-            notiView.append(String.format("%s\n", notifications.get(i)));
+            notificationView.append(String.format("%s\n", notifications.get(i)));
         }
     }
 

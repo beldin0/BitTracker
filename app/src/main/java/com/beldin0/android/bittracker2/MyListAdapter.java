@@ -1,4 +1,4 @@
-package com.beldin0.android.bittracker;
+package com.beldin0.android.bittracker2;
 
 
 import android.view.LayoutInflater;
@@ -9,11 +9,11 @@ import android.widget.TextView;
 
 import java.util.ArrayList;
 
-public class MyListAdapter extends BaseAdapter {
+class MyListAdapter extends BaseAdapter {
 
-    private ArrayList<ValueEntry> source;
+    private final ArrayList<ValueEntry> source;
 
-    public MyListAdapter(ArrayList<ValueEntry> list) {
+    MyListAdapter(ArrayList<ValueEntry> list) {
         this.source = list;
     }
 

@@ -5,8 +5,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context="com.beldin0.android.bittracker.MainActivity"
-    android:id="@+id/relativeLayout">
+    tools:context="com.beldin0.android.bittracker2.MainActivity">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -17,7 +16,7 @@
         android:id="@+id/txtLastUpdate"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Last Update:"
+        android:text="@string/last_update"
         android:layout_weight="1"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"/>

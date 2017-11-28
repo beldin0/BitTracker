@@ -17,7 +17,7 @@
             android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:layout_weight="2"
-            android:text="What" />
+            tools:text="" />
 
         <TextView
             android:id="@+id/value"
@@ -27,6 +27,6 @@
             android:layout_gravity="end"
             android:layout_weight="1"
             android:textStyle="normal"
-            android:text="Value" />
+            tools:text="" />
 
 </LinearLayout>

@@ -1,17 +1,15 @@
-package com.beldin0.android.bittracker;
+package com.beldin0.android.bittracker2;
 
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
-import android.graphics.Color;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
-import android.util.Log;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
@@ -25,49 +23,36 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Map;
-import java.util.TreeMap;
 
 public class BitTrackerService extends Service {
 
-    public static final String CURRENT_VALUE = "Current Value";
-    public static final String AVERAGE_5 = "5-Point Average";
-    public static final String AVERAGE_10 = "10-Point Average";
-    public static final String AVERAGE_15 = "15-Point Average";
-
-    public static final int RUNNING_NOTIFICATION = 1;
-    public static final int ALERT_NOTIFICATION = 2;
+    private static final int RUNNING_NOTIFICATION = 1;
+    private static final int ALERT_NOTIFICATION = 2;
+    private static final int MAX_NUMBER_OF_PRICES = 20;
 
     private final IBinder mBinder = new MyBinder();
-    public static Runnable runnable = null;
+    private static Runnable runnable = null;
     private Handler handler = null;
 
     private static final String DEFAULT_URL = "https://api.coindesk.com/v1/bpi/currentprice.json";
     private static int UPDATE_DELAY = 1000 * 3; // 3 seconds delay
 
     private URL apiURL;
-    private double[] price;
-    private boolean end;
-    private String firstUpdate = "";
-    private String lastUpdate;
+    private final double[] arrayOfPrices;
+    private String dateAndTimeOfFirstPricePoint = "";
+    private String dateAndTimeOfMostRecentPricePoint = "";
     private int count;
-    private ArrayList<ValueEntry> values;
-    private Map<String, Integer> oldOrder = new TreeMap<>();
-    private double boughtPrice;
-    private double profit;
-    private int txns = 0;
-    private ArrayList<String> notifications = new ArrayList<>();
+    private final ArrayList<String> notifications = new ArrayList<>();
     private boolean UIConnected;
+
+    private final BitTrackerAlgorithm algorithm;
 
     public void setUIConnected(boolean UIConnected) {
         this.UIConnected = UIConnected;
         if (UIConnected) {
-            try {
-                NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (notificationManager != null) {
                 notificationManager.cancel(RUNNING_NOTIFICATION);
-            } catch (NullPointerException e) {
-                Log.d("Close notification","Failed to find NOTIFICATION_SERVICE");
             }
         } else {
             startForeground(RUNNING_NOTIFICATION, buildNotification(String.format("Running... Last value: %s",setDecimals(latest(),2))));
@@ -79,16 +64,15 @@ public class BitTrackerService extends Service {
     }
 
     public BitTrackerService(String url) {
+        algorithm = new SimpleAverageAlgorithm();
+        arrayOfPrices = new double[MAX_NUMBER_OF_PRICES];
+        count = 0;
         try {
             apiURL = new URL(url);
         } catch (MalformedURLException e) {
             e.printStackTrace();
             apiURL = null;
         }
-        price = new double[15];
-        lastUpdate = "";
-        count = 0;
-        end = false;
     }
 
     @Override
@@ -108,24 +92,15 @@ public class BitTrackerService extends Service {
         handler.postDelayed(runnable, UPDATE_DELAY);
     }
 
-    public void stop () {
-        end = true;
-    }
-
-    public void go() {
+    private void go() {
         getNewPrice();
-        if (values!= null) fixOldOrder();
-        values = new ArrayList<>();
-        values.add(new ValueEntry(CURRENT_VALUE, latest()));
-        if (!(average(5)==0)) values.add(new ValueEntry(AVERAGE_5, average(5), Color.GREEN));
-        if (!(average(10)==0)) values.add(new ValueEntry(AVERAGE_10, average(10), Color.YELLOW));
-        if (!(average(15)==0)) values.add(new ValueEntry(AVERAGE_15, average(15), Color.RED));
-        Collections.sort(values);
-        String tmpNoti = compareOrders();
-        if (!("".equals(tmpNoti))) {
+        String tmpNotification = algorithm.compareOrders(dateAndTimeOfMostRecentPricePoint, arrayOfPrices);
+        if (!("".equals(tmpNotification))) {
             NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            notificationManager.notify(ALERT_NOTIFICATION, buildNotification(tmpNoti));
-            notifications.add(tmpNoti);
+            if (notificationManager != null) {
+                notificationManager.notify(ALERT_NOTIFICATION, buildNotification(tmpNotification));
+            }
+            notifications.add(tmpNotification);
             if (notifications.size() > 10) {
                 notifications.remove(0);
             }
@@ -133,15 +108,18 @@ public class BitTrackerService extends Service {
 
         if (UIConnected) {
             Intent local = new Intent();
-            local.putExtra("latest", lastUpdate);
+            local.putExtra("latest", dateAndTimeOfMostRecentPricePoint);
             local.putExtra("notifications", notifications);
-            local.putParcelableArrayListExtra("values", values);
+            local.putParcelableArrayListExtra("values", algorithm.getValuesToBeShownInUI());
             local.setAction("com.beldin0.BitTracker.action");
             this.sendBroadcast(local);
         } else {
             NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            notificationManager.cancel(RUNNING_NOTIFICATION);
-            notificationManager.notify(RUNNING_NOTIFICATION, buildNotification(String.format("Running... Last value: %s",setDecimals(latest(),2))));
+            if (notificationManager != null) {
+                notificationManager.cancel(RUNNING_NOTIFICATION);
+                notificationManager.notify(RUNNING_NOTIFICATION, buildNotification(String.format("Running... Last value: %s",setDecimals(latest(),2))));
+            }
+
         }
     }
 
@@ -170,26 +148,26 @@ public class BitTrackerService extends Service {
         JsonObject usd = (JsonObject) bpi.get("USD");
         JsonObject time = (JsonObject) obj.get("time");
         add(usd.get("rate_float").getAsDouble());
-        lastUpdate = (time.get("updateduk").getAsString());
-        if ("".equals(firstUpdate)) firstUpdate = (time.get("updateduk").getAsString());
+        dateAndTimeOfMostRecentPricePoint = (time.get("updateduk").getAsString());
+        if ("".equals(dateAndTimeOfFirstPricePoint)) dateAndTimeOfFirstPricePoint = dateAndTimeOfMostRecentPricePoint;
     }
 
-    public boolean isFull() {
-        return (count>=15);
+    private boolean isFull() {
+        return (count>= MAX_NUMBER_OF_PRICES);
     }
 
     public void add(double d) {
-        if (isFull()) count = 14;
-        for (int i=count; i>0; i--) {
-            price [i] = price[i-1];
+        if (isFull()) {
+            count = MAX_NUMBER_OF_PRICES - 1;
         }
-        price[0] = d;
+        System.arraycopy(arrayOfPrices, 0, arrayOfPrices, 1, count);
+        arrayOfPrices[0] = d;
         count++;
         if(isFull() && UPDATE_DELAY < 1000 * 60) UPDATE_DELAY = 1000 * 60;
     }
 
-    public String getLastUpdate() {
-        return lastUpdate;
+    public String getDateAndTimeOfMostRecentPricePoint() {
+        return dateAndTimeOfMostRecentPricePoint;
     }
 
     public int getCount() {
@@ -197,32 +175,7 @@ public class BitTrackerService extends Service {
     }
 
     public double latest() {
-        return price[0];
-    }
-
-    public double average(int num) {
-        return average(num,0);
-    }
-
-    public double average (int num, int startAt) {
-        if (count == 0 || num < 1) return 0;
-        if (num > count) return 0;
-        return sum(num, startAt) / num;
-    }
-
-    private double sum(int number) {
-        return sum(number, 0);
-    }
-
-    private double sum(int number, int startAt) {
-        if (number<1 || startAt < 0 || startAt > count || number > count) return 0;
-        if (number + startAt > count) startAt = count - number;
-        if (number > count) number = count;
-        double total = 0;
-        for (int i=startAt+1; i<=number; i++) {
-            total += price[i-1];
-        }
-        return total;
+        return arrayOfPrices[0];
     }
 
     private JsonObject getObjectFromJSON(String json) {
@@ -240,7 +193,7 @@ public class BitTrackerService extends Service {
     }
 
     private String getJSON() throws Exception {
-        String json = "";
+        String json;
         BufferedReader in;
         try {
             in = new BufferedReader(new InputStreamReader(apiURL.openStream()));
@@ -257,55 +210,11 @@ public class BitTrackerService extends Service {
         } finally {
             in.close();
         }
-        return json;
+        return json==null? "" : json;
     }
 
-    private String compareOrders() {
-        if(oldOrder==null || oldOrder.size()<4 || values==null) return "";
-
-        boolean shouldBuy = false;
-        boolean shouldSell = false;
-        String noti = "";
-
-        if (oldOrder.get(AVERAGE_5) > oldOrder.get(AVERAGE_15)
-                && getIndex(AVERAGE_5) < getIndex(AVERAGE_15)) {
-            shouldBuy = true;
-        } else if (oldOrder.get(AVERAGE_5) < oldOrder.get(AVERAGE_10)
-                && getIndex(AVERAGE_5) > getIndex(AVERAGE_10)) {
-            shouldSell = true;
-        }
-
-        if (shouldBuy && boughtPrice == 0) {
-            boughtPrice = getValue(CURRENT_VALUE);
-            noti = "BUY: " + setDecimals(boughtPrice,2)+ "\n" + lastUpdate;
-        }else if (shouldSell && boughtPrice > 0) {
-            double soldPrice = getValue(CURRENT_VALUE);
-            double thisProfit = soldPrice - boughtPrice;
-            profit += thisProfit;
-            txns++;
-            noti = "SELL: " + setDecimals(soldPrice,2) + " (make " + setDecimals(thisProfit,2) + ", total profit " + setDecimals(profit,2) + ")(" + txns + ")" + "\n" + lastUpdate;
-            boughtPrice = 0;
-        }
-
-        return noti;
-    }
-
-    public int getIndex (String name) {
-        return values.indexOf(new ValueEntry(name));
-    }
-
-    public double getValue (String name) {
-        return values.get(getIndex(name)).getValue();
-    }
-
-    private void fixOldOrder() {
-        for (int i=0; i<values.size(); i++) {
-            oldOrder.put(values.get(i).getName(), i);
-        }
-    }
-
-    public ArrayList<ValueEntry> getValues() {
-        return values;
+    public ArrayList<ValueEntry> getValuesToBeShownInUI() {
+        return algorithm.getValuesToBeShownInUI();
     }
 
     public ArrayList<String> getNotifications() {
@@ -313,16 +222,11 @@ public class BitTrackerService extends Service {
     }
 
     public String getFirstUpdate() {
-        return firstUpdate;
+        return dateAndTimeOfFirstPricePoint;
     }
 
-    public String setDecimals (double value, int decimals) {
+    private String setDecimals(double value, int decimals) {
         return new DecimalFormat("#,###" + ((decimals>0)? ("." + new String(new char[decimals]).replace("\0","0")): "")).format(value);
-    }
-
-    public String setDecimals(double value)
-    {
-        return setDecimals(value, 4);
     }
 
     @Override
@@ -336,7 +240,7 @@ public class BitTrackerService extends Service {
         return mBinder;
     }
 
-    public class MyBinder extends Binder {
+    class MyBinder extends Binder {
         BitTrackerService getService() {
             return BitTrackerService.this;
         }
